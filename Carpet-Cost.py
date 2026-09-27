@@ -16,5 +16,5 @@ def carpet_cost(width, length, price):
 
 width = int(input("Enter the width of the room to nearest meter: "))
 length = int(input("Enter the length of the room to nearest meter: "))
-price = float(input("Enter the price of the carpet per m2: "))
+price = float(input("Enter the price of the carpet per m2 in £: "))
 print("The total cost is: £" +  str(carpet_cost(width, length, price)))
