@@ -31,7 +31,12 @@ pipes = []
 score = 0
 high_score = 0
 
-game_active = True
+# Game states
+MENU = "menu"
+PLAYING = "playing"
+GAME_OVER = "game_over"
+
+game_state = MENU
 
 spawn_timer = 0
 bird_animation_timer = 0
@@ -54,20 +59,43 @@ def create_pipe():
     })
 
 
-def reset_game():
+def start_game():
     global bird_y
     global bird_movement
     global score
     global pipes
-    global game_active
     global spawn_timer
+    global bird_animation_timer
+    global bird_frame
+    global game_state
 
     bird_y = HEIGHT // 2
     bird_movement = 0
     score = 0
+
+    pipes.clear()
+
+    spawn_timer = 0
+    bird_animation_timer = 0
+    bird_frame = 0
+
+    game_state = PLAYING
+
+
+def go_to_menu():
+    global game_state
+    global bird_y
+    global bird_movement
+    global pipes
+    global spawn_timer
+
+    bird_y = HEIGHT // 2
+    bird_movement = 0
+
     pipes.clear()
     spawn_timer = 0
-    game_active = True
+
+    game_state = MENU
 
 
 def draw_background():
@@ -296,6 +324,122 @@ def draw_score():
     )
 
 
+def draw_menu():
+    # Dark transparent overlay
+    overlay = pygame.Surface(
+        (WIDTH, HEIGHT),
+        pygame.SRCALPHA
+    )
+
+    overlay.fill((0, 0, 0, 60))
+
+    screen.blit(
+        overlay,
+        (0, 0)
+    )
+
+    # Title
+    title = large_font.render(
+        "FLAPPY BIRD",
+        True,
+        (255, 255, 255)
+    )
+
+    title_rect = title.get_rect(
+        center=(WIDTH // 2, 150)
+    )
+
+    screen.blit(
+        title,
+        title_rect
+    )
+
+    # Bird
+    draw_bird()
+
+    # Start button
+    button_width = 180
+    button_height = 60
+
+    button_x = (WIDTH - button_width) // 2
+    button_y = 270
+
+    pygame.draw.rect(
+        screen,
+        (70, 190, 80),
+        (
+            button_x,
+            button_y,
+            button_width,
+            button_height
+        ),
+        border_radius=12
+    )
+
+    pygame.draw.rect(
+        screen,
+        (40, 130, 50),
+        (
+            button_x,
+            button_y,
+            button_width,
+            button_height
+        ),
+        3,
+        border_radius=12
+    )
+
+    start_text = font.render(
+        "START",
+        True,
+        (255, 255, 255)
+    )
+
+    start_rect = start_text.get_rect(
+        center=(
+            WIDTH // 2,
+            button_y + button_height // 2
+        )
+    )
+
+    screen.blit(
+        start_text,
+        start_rect
+    )
+
+    # Instructions
+    instruction = small_font.render(
+        "Click or press SPACE to start",
+        True,
+        (255, 255, 255)
+    )
+
+    instruction_rect = instruction.get_rect(
+        center=(WIDTH // 2, 370)
+    )
+
+    screen.blit(
+        instruction,
+        instruction_rect
+    )
+
+    # High score
+    best_text = font.render(
+        "Best: " + str(high_score),
+        True,
+        (255, 255, 255)
+    )
+
+    best_rect = best_text.get_rect(
+        center=(WIDTH // 2, 420)
+    )
+
+    screen.blit(
+        best_text,
+        best_rect
+    )
+
+
 def draw_game_over():
     overlay = pygame.Surface(
         (WIDTH, HEIGHT),
@@ -357,7 +501,7 @@ def draw_game_over():
     )
 
     restart_text = small_font.render(
-        "Press SPACE or click to restart",
+        "Click or press SPACE for menu",
         True,
         (255, 255, 255)
     )
@@ -375,16 +519,20 @@ def draw_game_over():
 async def game_loop():
     global bird_y
     global bird_movement
-    global game_active
     global spawn_timer
     global bird_animation_timer
     global bird_frame
     global score
     global high_score
+    global game_state
 
     running = True
 
     while running:
+
+        # -------------------------
+        # EVENTS
+        # -------------------------
 
         for event in pygame.event.get():
 
@@ -395,19 +543,31 @@ async def game_loop():
 
                 if event.key == pygame.K_SPACE:
 
-                    if game_active:
+                    if game_state == MENU:
+                        start_game()
+
+                    elif game_state == PLAYING:
                         bird_movement = -5.5
-                    else:
-                        reset_game()
+
+                    elif game_state == GAME_OVER:
+                        go_to_menu()
 
             elif event.type == pygame.MOUSEBUTTONDOWN:
 
-                if game_active:
-                    bird_movement = -5.5
-                else:
-                    reset_game()
+                if game_state == MENU:
+                    start_game()
 
-        if game_active:
+                elif game_state == PLAYING:
+                    bird_movement = -5.5
+
+                elif game_state == GAME_OVER:
+                    go_to_menu()
+
+        # -------------------------
+        # GAME UPDATE
+        # -------------------------
+
+        if game_state == PLAYING:
 
             bird_movement += gravity
             bird_y += bird_movement
@@ -418,6 +578,7 @@ async def game_loop():
                 create_pipe()
                 spawn_timer = 0
 
+            # Bird animation
             bird_animation_timer += 1
 
             if bird_animation_timer >= 8:
@@ -427,9 +588,12 @@ async def game_loop():
                 if bird_frame >= 3:
                     bird_frame = 0
 
+            # Move pipes
             for pipe in pipes:
+
                 pipe["x"] -= pipe_speed
 
+                # Score when bird passes pipe
                 if (
                     not pipe["passed"]
                     and pipe["x"] + pipe_width < bird_x
@@ -437,41 +601,61 @@ async def game_loop():
                     pipe["passed"] = True
                     score += 1
 
+            # Remove old pipes
             pipes[:] = [
                 pipe
                 for pipe in pipes
                 if pipe["x"] > -pipe_width - 20
             ]
 
+            # Ceiling collision
             if bird_y - bird_radius < 0:
-                game_active = False
+                game_state = GAME_OVER
 
+            # Ground collision
             if bird_y + bird_radius >= HEIGHT - ground_height:
-                game_active = False
+                game_state = GAME_OVER
 
+            # Pipe collision
             for pipe in pipes:
 
                 if check_collision(pipe):
-                    game_active = False
+                    game_state = GAME_OVER
                     break
 
-            if not game_active:
+            # Update high score
+            if game_state == GAME_OVER:
 
                 if score > high_score:
                     high_score = score
 
+        # -------------------------
+        # DRAW
+        # -------------------------
+
         draw_background()
 
-        for pipe in pipes:
-            draw_pipe(pipe)
+        if game_state == PLAYING:
 
-        draw_ground()
+            for pipe in pipes:
+                draw_pipe(pipe)
 
-        draw_bird()
-
-        if game_active:
+            draw_ground()
+            draw_bird()
             draw_score()
-        else:
+
+        elif game_state == MENU:
+
+            draw_ground()
+            draw_menu()
+
+        elif game_state == GAME_OVER:
+
+            for pipe in pipes:
+                draw_pipe(pipe)
+
+            draw_ground()
+            draw_bird()
             draw_game_over()
 
         pygame.display.flip()
