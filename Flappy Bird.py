@@ -1,5 +1,6 @@
 import pygame
 import random
+import math
 import asyncio
 
 pygame.init()
@@ -8,30 +9,53 @@ WIDTH = 336
 HEIGHT = 512
 
 screen = pygame.display.set_mode((WIDTH, HEIGHT))
-pygame.display.set_caption("Flappy Bird")
+pygame.display.set_caption("Flappy Bird • Modern Edition")
 
 clock = pygame.time.Clock()
 
 font = pygame.font.Font(None, 32)
-large_font = pygame.font.Font(None, 52)
-small_font = pygame.font.Font(None, 24)
+small_font = pygame.font.Font(None, 22)
+large_font = pygame.font.Font(None, 54)
+huge_font = pygame.font.Font(None, 72)
+
+SKY_TOP = (75, 170, 235)
+SKY_BOTTOM = (185, 235, 255)
+
+WHITE = (255, 255, 255)
+BLACK = (20, 25, 35)
+
+YELLOW = (255, 214, 55)
+YELLOW_LIGHT = (255, 235, 100)
+
+GREEN = (67, 205, 100)
+GREEN_DARK = (35, 145, 70)
+GREEN_LIGHT = (105, 230, 125)
+
+GROUND = (224, 190, 105)
+GROUND_DARK = (188, 150, 70)
+
+RED = (245, 75, 80)
+BLUE = (70, 150, 255)
 
 gravity = 0.20
 bird_movement = 0
-bird_x = 70
+
+bird_x = 78
 bird_y = 256
 bird_radius = 16
 
-pipe_width = 55
+pipe_width = 58
 pipe_gap = 145
 pipe_speed = 3
+
+PIPE_VERTICAL_SPEED = 0.15
+PIPE_VERTICAL_RANGE = 40
 
 pipes = []
 
 score = 0
 high_score = 0
 
-# Game states
 MENU = "menu"
 PLAYING = "playing"
 GAME_OVER = "game_over"
@@ -39,24 +63,655 @@ GAME_OVER = "game_over"
 game_state = MENU
 
 spawn_timer = 0
+
 bird_animation_timer = 0
 bird_frame = 0
 
-ground_height = 52
+background_time = 0
+
+shake_timer = 0
+shake_strength = 0
+
+fps_display = 60
+fps_timer = 0
+
+particles = []
+
+ground_height = 54
+
+
+def clamp(value, minimum, maximum):
+    return max(minimum, min(value, maximum))
+
+
+def draw_text_center(text, font_obj, color, x, y):
+    surface = font_obj.render(text, True, color)
+    rect = surface.get_rect(center=(x, y))
+    screen.blit(surface, rect)
+
+
+def rounded_rect(
+    surface,
+    color,
+    rect,
+    radius=12,
+    border=0,
+    border_color=None
+):
+    pygame.draw.rect(
+        surface,
+        color,
+        rect,
+        border_radius=radius
+    )
+
+    if border > 0 and border_color:
+        pygame.draw.rect(
+            surface,
+            border_color,
+            rect,
+            border,
+            border_radius=radius
+        )
+
+
+def create_particles(x, y, color, amount=8):
+    for _ in range(amount):
+        particles.append({
+            "x": x,
+            "y": y,
+            "vx": random.uniform(-1.5, 1.5),
+            "vy": random.uniform(-1.5, 1.5),
+            "life": random.randint(20, 40),
+            "size": random.randint(2, 5),
+            "color": color
+        })
+
+
+def update_particles():
+    for particle in particles[:]:
+        particle["x"] += particle["vx"]
+        particle["y"] += particle["vy"]
+        particle["vy"] += 0.03
+        particle["life"] -= 1
+
+        if particle["life"] <= 0:
+            particles.remove(particle)
+
+
+def draw_particles():
+    for particle in particles:
+        alpha = clamp(
+            particle["life"] * 6,
+            0,
+            255
+        )
+
+        particle_surface = pygame.Surface(
+            (
+                particle["size"] * 2,
+                particle["size"] * 2
+            ),
+            pygame.SRCALPHA
+        )
+
+        pygame.draw.circle(
+            particle_surface,
+            (*particle["color"], alpha),
+            (
+                particle["size"],
+                particle["size"]
+            ),
+            particle["size"]
+        )
+
+        screen.blit(
+            particle_surface,
+            (
+                int(
+                    particle["x"]
+                    - particle["size"]
+                ),
+                int(
+                    particle["y"]
+                    - particle["size"]
+                )
+            )
+        )
+
+
+def draw_background():
+    for y in range(HEIGHT):
+        ratio = y / HEIGHT
+
+        r = int(
+            SKY_TOP[0] * (1 - ratio)
+            + SKY_BOTTOM[0] * ratio
+        )
+
+        g = int(
+            SKY_TOP[1] * (1 - ratio)
+            + SKY_BOTTOM[1] * ratio
+        )
+
+        b = int(
+            SKY_TOP[2] * (1 - ratio)
+            + SKY_BOTTOM[2] * ratio
+        )
+
+        pygame.draw.line(
+            screen,
+            (r, g, b),
+            (0, y),
+            (WIDTH, y)
+        )
+
+    sun_surface = pygame.Surface(
+        (150, 150),
+        pygame.SRCALPHA
+    )
+
+    for radius in range(60, 5, -5):
+        alpha = int(
+            2 + (60 - radius) * 0.8
+        )
+
+        pygame.draw.circle(
+            sun_surface,
+            (255, 245, 160, alpha),
+            (75, 75),
+            radius
+        )
+
+    screen.blit(
+        sun_surface,
+        (225, 15)
+    )
+
+    pygame.draw.circle(
+        screen,
+        (255, 238, 130),
+        (300, 70),
+        32
+    )
+
+    draw_cloud(55, 100, 0.9)
+    draw_cloud(230, 145, 0.7)
+    draw_cloud(145, 55, 0.55)
+
+    pygame.draw.polygon(
+        screen,
+        (113, 195, 135),
+        [
+            (0, 390),
+            (55, 320),
+            (110, 380),
+            (170, 295),
+            (245, 380),
+            (290, 325),
+            (336, 380),
+            (336, 430),
+            (0, 430)
+        ]
+    )
+
+    pygame.draw.polygon(
+        screen,
+        (80, 175, 105),
+        [
+            (0, 410),
+            (75, 350),
+            (135, 405),
+            (205, 345),
+            (270, 400),
+            (336, 350),
+            (336, 430),
+            (0, 430)
+        ]
+    )
+
+
+def draw_cloud(x, y, scale):
+    color = (255, 255, 255)
+
+    pygame.draw.circle(
+        screen,
+        color,
+        (int(x), int(y)),
+        int(18 * scale)
+    )
+
+    pygame.draw.circle(
+        screen,
+        color,
+        (
+            int(x + 20 * scale),
+            int(y - 7 * scale)
+        ),
+        int(25 * scale)
+    )
+
+    pygame.draw.circle(
+        screen,
+        color,
+        (
+            int(x + 45 * scale),
+            int(y)
+        ),
+        int(18 * scale)
+    )
+
+    pygame.draw.rect(
+        screen,
+        color,
+        (
+            int(x),
+            int(y),
+            int(45 * scale),
+            int(18 * scale)
+        )
+    )
+
+
+def draw_ground():
+    ground_y = HEIGHT - ground_height
+
+    pygame.draw.rect(
+        screen,
+        (93, 205, 91),
+        (
+            0,
+            ground_y,
+            WIDTH,
+            9
+        )
+    )
+
+    pygame.draw.rect(
+        screen,
+        (63, 175, 75),
+        (
+            0,
+            ground_y + 7,
+            WIDTH,
+            5
+        )
+    )
+
+    pygame.draw.rect(
+        screen,
+        GROUND,
+        (
+            0,
+            ground_y + 12,
+            WIDTH,
+            ground_height - 12
+        )
+    )
+
+    for x in range(-20, WIDTH + 20, 28):
+        pygame.draw.line(
+            screen,
+            GROUND_DARK,
+            (
+                x,
+                ground_y + 20
+            ),
+            (
+                x + 12,
+                ground_y + 31
+            ),
+            3
+        )
+
+        pygame.draw.line(
+            screen,
+            GROUND_DARK,
+            (
+                x + 13,
+                ground_y + 40
+            ),
+            (
+                x + 25,
+                ground_y + 50
+            ),
+            2
+        )
+
+
+def draw_bird():
+    wing_offset = {
+        0: 5,
+        1: 0,
+        2: -5
+    }[bird_frame]
+
+    x = int(bird_x)
+    y = int(bird_y)
+
+    glow = pygame.Surface(
+        (60, 60),
+        pygame.SRCALPHA
+    )
+
+    pygame.draw.circle(
+        glow,
+        (
+            255,
+            225,
+            60,
+            45
+        ),
+        (30, 30),
+        23
+    )
+
+    screen.blit(
+        glow,
+        (
+            x - 30,
+            y - 30
+        )
+    )
+
+    pygame.draw.circle(
+        screen,
+        YELLOW,
+        (x, y),
+        bird_radius
+    )
+
+    pygame.draw.circle(
+        screen,
+        YELLOW_LIGHT,
+        (
+            x - 5,
+            y - 6
+        ),
+        7
+    )
+
+    pygame.draw.ellipse(
+        screen,
+        (
+            239,
+            184,
+            35
+        ),
+        (
+            x - 15,
+            y + wing_offset - 3,
+            21,
+            13
+        )
+    )
+
+    pygame.draw.circle(
+        screen,
+        WHITE,
+        (
+            x + 7,
+            y - 7
+        ),
+        7
+    )
+
+    pygame.draw.circle(
+        screen,
+        BLACK,
+        (
+            x + 9,
+            y - 7
+        ),
+        3
+    )
+
+    pygame.draw.polygon(
+        screen,
+        (
+            225,
+            95,
+            20
+        ),
+        [
+            (x + 13, y + 1),
+            (x + 29, y + 6),
+            (x + 13, y + 11)
+        ]
+    )
+
+    pygame.draw.polygon(
+        screen,
+        (
+            255,
+            135,
+            35
+        ),
+        [
+            (x + 13, y),
+            (x + 28, y + 4),
+            (x + 13, y + 7)
+        ]
+    )
 
 
 def create_pipe():
-    gap_y = random.randint(130, 350)
-
-    top_height = gap_y - pipe_gap // 2
-    bottom_y = gap_y + pipe_gap // 2
+    gap_y = random.randint(
+        145,
+        330
+    )
 
     pipes.append({
-        "x": WIDTH,
-        "top": top_height,
-        "bottom": bottom_y,
+        "x": WIDTH + 10,
+        "gap_y": gap_y,
+        "base_y": gap_y,
+        "phase": random.uniform(
+            0,
+            math.pi * 2
+        ),
         "passed": False
     })
+
+
+def update_pipe_vertical_movement(pipe):
+    pipe["gap_y"] = (
+        pipe["base_y"]
+        +
+        math.sin(
+            background_time
+            * PIPE_VERTICAL_SPEED
+            * 0.035
+            +
+            pipe["phase"]
+        )
+        * PIPE_VERTICAL_RANGE
+    )
+
+    pipe["gap_y"] = clamp(
+        pipe["gap_y"],
+        125,
+        340
+    )
+
+
+def draw_pipe(pipe):
+    x = int(
+        pipe["x"]
+    )
+
+    gap_y = int(
+        pipe["gap_y"]
+    )
+
+    top_height = int(
+        gap_y
+        - pipe_gap // 2
+    )
+
+    bottom_y = int(
+        gap_y
+        + pipe_gap // 2
+    )
+
+    pygame.draw.rect(
+        screen,
+        GREEN_DARK,
+        (
+            x,
+            0,
+            pipe_width,
+            top_height
+        )
+    )
+
+    pygame.draw.rect(
+        screen,
+        GREEN,
+        (
+            x + 5,
+            0,
+            pipe_width - 12,
+            top_height
+        )
+    )
+
+    pygame.draw.rect(
+        screen,
+        GREEN_DARK,
+        (
+            x - 6,
+            top_height - 22,
+            pipe_width + 12,
+            22
+        ),
+        border_radius=5
+    )
+
+    pygame.draw.rect(
+        screen,
+        GREEN_LIGHT,
+        (
+            x - 2,
+            top_height - 19,
+            pipe_width - 8,
+            7
+        ),
+        border_radius=3
+    )
+
+    bottom_height = (
+        HEIGHT
+        - ground_height
+        - bottom_y
+    )
+
+    pygame.draw.rect(
+        screen,
+        GREEN_DARK,
+        (
+            x,
+            bottom_y,
+            pipe_width,
+            bottom_height
+        )
+    )
+
+    pygame.draw.rect(
+        screen,
+        GREEN,
+        (
+            x + 5,
+            bottom_y,
+            pipe_width - 12,
+            bottom_height
+        )
+    )
+
+    pygame.draw.rect(
+        screen,
+        GREEN_DARK,
+        (
+            x - 6,
+            bottom_y,
+            pipe_width + 12,
+            22
+        ),
+        border_radius=5
+    )
+
+    pygame.draw.rect(
+        screen,
+        GREEN_LIGHT,
+        (
+            x - 2,
+            bottom_y + 3,
+            pipe_width - 8,
+            7
+        ),
+        border_radius=3
+    )
+
+
+def check_collision(pipe):
+    bird_left = (
+        bird_x
+        - bird_radius
+        + 3
+    )
+
+    bird_right = (
+        bird_x
+        + bird_radius
+        - 3
+    )
+
+    bird_top = (
+        bird_y
+        - bird_radius
+        + 3
+    )
+
+    bird_bottom = (
+        bird_y
+        + bird_radius
+        - 3
+    )
+
+    pipe_left = pipe["x"]
+
+    pipe_right = (
+        pipe["x"]
+        + pipe_width
+    )
+
+    horizontal_collision = (
+        bird_right > pipe_left
+        and
+        bird_left < pipe_right
+    )
+
+    if not horizontal_collision:
+        return False
+
+    gap_y = pipe["gap_y"]
+
+    top_height = (
+        gap_y
+        - pipe_gap // 2
+    )
+
+    bottom_y = (
+        gap_y
+        + pipe_gap // 2
+    )
+
+    if bird_top < top_height:
+        return True
+
+    if bird_bottom > bottom_y:
+        return True
+
+    return False
 
 
 def start_game():
@@ -68,12 +723,14 @@ def start_game():
     global bird_animation_timer
     global bird_frame
     global game_state
+    global particles
 
     bird_y = HEIGHT // 2
     bird_movement = 0
     score = 0
 
     pipes.clear()
+    particles.clear()
 
     spawn_timer = 0
     bird_animation_timer = 0
@@ -98,386 +755,73 @@ def go_to_menu():
     game_state = MENU
 
 
-def draw_background():
-    screen.fill((135, 206, 235))
+def game_over():
+    global game_state
+    global high_score
+    global shake_timer
+    global shake_strength
 
-    pygame.draw.circle(
-        screen,
-        (255, 240, 150),
-        (280, 70),
-        35
+    game_state = GAME_OVER
+
+    if score > high_score:
+        high_score = score
+
+    create_particles(
+        bird_x,
+        bird_y,
+        YELLOW,
+        25
     )
 
-    pygame.draw.polygon(
-        screen,
-        (100, 190, 100),
-        [
-            (0, 390),
-            (70, 310),
-            (145, 390)
-        ]
-    )
-
-    pygame.draw.polygon(
-        screen,
-        (80, 175, 90),
-        [
-            (100, 390),
-            (200, 300),
-            (300, 390)
-        ]
-    )
-
-
-def draw_ground():
-    pygame.draw.rect(
-        screen,
-        (222, 190, 90),
-        (
-            0,
-            HEIGHT - ground_height,
-            WIDTH,
-            ground_height
-        )
-    )
-
-    pygame.draw.rect(
-        screen,
-        (80, 190, 70),
-        (
-            0,
-            HEIGHT - ground_height,
-            WIDTH,
-            8
-        )
-    )
-
-    for x in range(-20, WIDTH + 20, 25):
-        pygame.draw.line(
-            screen,
-            (190, 155, 65),
-            (x, HEIGHT - 25),
-            (x + 15, HEIGHT),
-            3
-        )
-
-
-def draw_bird():
-    wing_y = int(bird_y)
-
-    if bird_frame == 0:
-        wing_offset = 5
-    elif bird_frame == 1:
-        wing_offset = 0
-    else:
-        wing_offset = -5
-
-    pygame.draw.circle(
-        screen,
-        (255, 220, 40),
-        (bird_x, wing_y),
-        bird_radius
-    )
-
-    pygame.draw.ellipse(
-        screen,
-        (240, 190, 30),
-        (
-            bird_x - 14,
-            wing_y + wing_offset - 2,
-            20,
-            12
-        )
-    )
-
-    pygame.draw.circle(
-        screen,
-        (255, 255, 255),
-        (bird_x + 7, wing_y - 6),
-        6
-    )
-
-    pygame.draw.circle(
-        screen,
-        (0, 0, 0),
-        (bird_x + 9, wing_y - 6),
-        3
-    )
-
-    pygame.draw.polygon(
-        screen,
-        (255, 120, 30),
-        [
-            (bird_x + 13, wing_y),
-            (bird_x + 28, wing_y + 5),
-            (bird_x + 13, wing_y + 9)
-        ]
-    )
-
-
-def draw_pipe(pipe):
-    x = int(pipe["x"])
-
-    top_height = int(pipe["top"])
-    bottom_y = int(pipe["bottom"])
-
-    pygame.draw.rect(
-        screen,
-        (40, 180, 70),
-        (
-            x,
-            0,
-            pipe_width,
-            top_height
-        )
-    )
-
-    pygame.draw.rect(
-        screen,
-        (30, 145, 55),
-        (
-            x - 5,
-            top_height - 20,
-            pipe_width + 10,
-            20
-        )
-    )
-
-    pygame.draw.rect(
-        screen,
-        (40, 180, 70),
-        (
-            x,
-            bottom_y,
-            pipe_width,
-            HEIGHT - ground_height - bottom_y
-        )
-    )
-
-    pygame.draw.rect(
-        screen,
-        (30, 145, 55),
-        (
-            x - 5,
-            bottom_y,
-            pipe_width + 10,
-            20
-        )
-    )
-
-
-def check_collision(pipe):
-    bird_left = bird_x - bird_radius
-    bird_right = bird_x + bird_radius
-    bird_top = bird_y - bird_radius
-    bird_bottom = bird_y + bird_radius
-
-    pipe_left = pipe["x"]
-    pipe_right = pipe["x"] + pipe_width
-
-    horizontal_collision = (
-        bird_right > pipe_left
-        and bird_left < pipe_right
-    )
-
-    if not horizontal_collision:
-        return False
-
-    if bird_top < pipe["top"]:
-        return True
-
-    if bird_bottom > pipe["bottom"]:
-        return True
-
-    return False
+    shake_timer = 12
+    shake_strength = 5
 
 
 def draw_score():
-    text = font.render(
-        str(score),
-        True,
-        (255, 255, 255)
-    )
-
-    shadow = font.render(
-        str(score),
-        True,
-        (0, 0, 0)
-    )
-
-    text_rect = text.get_rect(
-        center=(WIDTH // 2, 45)
-    )
-
-    shadow_rect = shadow.get_rect(
-        center=(WIDTH // 2 + 2, 47)
-    )
-
-    screen.blit(
-        shadow,
-        shadow_rect
-    )
-
-    screen.blit(
-        text,
-        text_rect
-    )
-
-
-def draw_menu():
-    # Dark transparent overlay
-    overlay = pygame.Surface(
-        (WIDTH, HEIGHT),
+    panel = pygame.Surface(
+        (
+            100,
+            58
+        ),
         pygame.SRCALPHA
     )
 
-    overlay.fill((0, 0, 0, 60))
+    rounded_rect(
+        panel,
+        (
+            20,
+            30,
+            45,
+            100
+        ),
+        (
+            0,
+            0,
+            100,
+            58
+        ),
+        18
+    )
 
     screen.blit(
-        overlay,
-        (0, 0)
-    )
-
-    # Title
-    title = large_font.render(
-        "FLAPPY BIRD",
-        True,
-        (255, 255, 255)
-    )
-
-    title_rect = title.get_rect(
-        center=(WIDTH // 2, 150)
-    )
-
-    screen.blit(
-        title,
-        title_rect
-    )
-
-    # Bird
-    draw_bird()
-
-    # Start button
-    button_width = 180
-    button_height = 60
-
-    button_x = (WIDTH - button_width) // 2
-    button_y = 270
-
-    pygame.draw.rect(
-        screen,
-        (70, 190, 80),
+        panel,
         (
-            button_x,
-            button_y,
-            button_width,
-            button_height
-        ),
-        border_radius=12
-    )
-
-    pygame.draw.rect(
-        screen,
-        (40, 130, 50),
-        (
-            button_x,
-            button_y,
-            button_width,
-            button_height
-        ),
-        3,
-        border_radius=12
-    )
-
-    start_text = font.render(
-        "START",
-        True,
-        (255, 255, 255)
-    )
-
-    start_rect = start_text.get_rect(
-        center=(
-            WIDTH // 2,
-            button_y + button_height // 2
+            WIDTH // 2 - 50,
+            15
         )
     )
 
-    screen.blit(
-        start_text,
-        start_rect
-    )
-
-    # Instructions
-    instruction = small_font.render(
-        "Click or press SPACE to start",
+    score_text = huge_font.render(
+        str(score),
         True,
-        (255, 255, 255)
-    )
-
-    instruction_rect = instruction.get_rect(
-        center=(WIDTH // 2, 370)
-    )
-
-    screen.blit(
-        instruction,
-        instruction_rect
-    )
-
-    # High score
-    best_text = font.render(
-        "Best: " + str(high_score),
-        True,
-        (255, 255, 255)
-    )
-
-    best_rect = best_text.get_rect(
-        center=(WIDTH // 2, 420)
-    )
-
-    screen.blit(
-        best_text,
-        best_rect
-    )
-
-
-def draw_game_over():
-    overlay = pygame.Surface(
-        (WIDTH, HEIGHT),
-        pygame.SRCALPHA
-    )
-
-    overlay.fill(
-        (0, 0, 0, 100)
-    )
-
-    screen.blit(
-        overlay,
-        (0, 0)
-    )
-
-    title = large_font.render(
-        "GAME OVER",
-        True,
-        (255, 255, 255)
-    )
-
-    title_rect = title.get_rect(
-        center=(WIDTH // 2, 190)
-    )
-
-    screen.blit(
-        title,
-        title_rect
-    )
-
-    score_text = font.render(
-        "Score: " + str(score),
-        True,
-        (255, 255, 255)
+        WHITE
     )
 
     score_rect = score_text.get_rect(
-        center=(WIDTH // 2, 250)
+        center=(
+            WIDTH // 2,
+            44
+        )
     )
 
     screen.blit(
@@ -485,34 +829,341 @@ def draw_game_over():
         score_rect
     )
 
-    high_text = font.render(
-        "Best: " + str(high_score),
+
+def draw_fps():
+    fps_text = small_font.render(
+        f"FPS: {fps_display}",
         True,
-        (255, 255, 255)
+        WHITE
     )
 
-    high_rect = high_text.get_rect(
-        center=(WIDTH // 2, 290)
+    shadow = small_font.render(
+        f"FPS: {fps_display}",
+        True,
+        (
+            20,
+            30,
+            40
+        )
     )
 
     screen.blit(
-        high_text,
-        high_rect
-    )
-
-    restart_text = small_font.render(
-        "Click or press SPACE for menu",
-        True,
-        (255, 255, 255)
-    )
-
-    restart_rect = restart_text.get_rect(
-        center=(WIDTH // 2, 350)
+        shadow,
+        (
+            9,
+            10
+        )
     )
 
     screen.blit(
-        restart_text,
-        restart_rect
+        fps_text,
+        (
+            8,
+            9
+        )
+    )
+
+
+def draw_menu():
+    overlay = pygame.Surface(
+        (
+            WIDTH,
+            HEIGHT
+        ),
+        pygame.SRCALPHA
+    )
+
+    overlay.fill(
+        (
+            10,
+            25,
+            45,
+            95
+        )
+    )
+
+    screen.blit(
+        overlay,
+        (0, 0)
+    )
+
+    card = pygame.Surface(
+        (
+            290,
+            390
+        ),
+        pygame.SRCALPHA
+    )
+
+    rounded_rect(
+        card,
+        (
+            20,
+            35,
+            60,
+            185
+        ),
+        (
+            0,
+            0,
+            290,
+            390
+        ),
+        28,
+        2,
+        (
+            255,
+            255,
+            255,
+            35
+        )
+    )
+
+    screen.blit(
+        card,
+        (
+            23,
+            70
+        )
+    )
+
+    draw_text_center(
+        "FLAPPY",
+        large_font,
+        BLACK,
+        WIDTH // 2 + 2,
+        122
+    )
+
+    draw_text_center(
+        "FLAPPY",
+        large_font,
+        WHITE,
+        WIDTH // 2,
+        120
+    )
+
+    draw_text_center(
+        "BIRD",
+        large_font,
+        YELLOW,
+        WIDTH // 2,
+        165
+    )
+
+    draw_bird()
+
+    button_rect = pygame.Rect(
+        68,
+        260,
+        200,
+        62
+    )
+
+    rounded_rect(
+        screen,
+        (
+            45,
+            190,
+            95
+        ),
+        button_rect,
+        18
+    )
+
+    pygame.draw.rect(
+        screen,
+        (
+            35,
+            130,
+            70
+        ),
+        button_rect,
+        3,
+        border_radius=18
+    )
+
+    draw_text_center(
+        "PLAY",
+        font,
+        WHITE,
+        WIDTH // 2,
+        291
+    )
+
+    draw_text_center(
+        "CLICK  •  SPACE  •  TAP",
+        small_font,
+        (
+            220,
+            235,
+            245
+        ),
+        WIDTH // 2,
+        355
+    )
+
+    draw_text_center(
+        f"BEST  {high_score}",
+        font,
+        YELLOW_LIGHT,
+        WIDTH // 2,
+        410
+    )
+
+    draw_text_center(
+        "Slow moving pipes",
+        small_font,
+        (
+            190,
+            210,
+            225
+        ),
+        WIDTH // 2,
+        445
+    )
+
+
+def draw_game_over():
+    overlay = pygame.Surface(
+        (
+            WIDTH,
+            HEIGHT
+        ),
+        pygame.SRCALPHA
+    )
+
+    overlay.fill(
+        (
+            10,
+            15,
+            25,
+            150
+        )
+    )
+
+    screen.blit(
+        overlay,
+        (0, 0)
+    )
+
+    card = pygame.Surface(
+        (
+            280,
+            300
+        ),
+        pygame.SRCALPHA
+    )
+
+    rounded_rect(
+        card,
+        (
+            20,
+            30,
+            50,
+            225
+        ),
+        (
+            0,
+            0,
+            280,
+            300
+        ),
+        28,
+        2,
+        (
+            255,
+            255,
+            255,
+            40
+        )
+    )
+
+    screen.blit(
+        card,
+        (
+            28,
+            100
+        )
+    )
+
+    draw_text_center(
+        "GAME OVER",
+        large_font,
+        WHITE,
+        WIDTH // 2,
+        145
+    )
+
+    pygame.draw.rect(
+        screen,
+        (
+            255,
+            255,
+            255,
+            18
+        ),
+        (
+            65,
+            185,
+            206,
+            58
+        ),
+        border_radius=14
+    )
+
+    draw_text_center(
+        f"SCORE   {score}",
+        font,
+        WHITE,
+        WIDTH // 2,
+        214
+    )
+
+    draw_text_center(
+        f"BEST   {high_score}",
+        font,
+        YELLOW,
+        WIDTH // 2,
+        255
+    )
+
+    button_rect = pygame.Rect(
+        68,
+        300,
+        200,
+        58
+    )
+
+    rounded_rect(
+        screen,
+        (
+            55,
+            175,
+            245
+        ),
+        button_rect,
+        17
+    )
+
+    draw_text_center(
+        "MENU",
+        font,
+        WHITE,
+        WIDTH // 2,
+        329
+    )
+
+    draw_text_center(
+        "CLICK or SPACE",
+        small_font,
+        (
+            205,
+            220,
+            235
+        ),
+        WIDTH // 2,
+        390
     )
 
 
@@ -525,14 +1176,13 @@ async def game_loop():
     global score
     global high_score
     global game_state
+    global background_time
+    global fps_display
+    global fps_timer
 
     running = True
 
     while running:
-
-        # -------------------------
-        # EVENTS
-        # -------------------------
 
         for event in pygame.event.get():
 
@@ -541,13 +1191,33 @@ async def game_loop():
 
             elif event.type == pygame.KEYDOWN:
 
-                if event.key == pygame.K_SPACE:
+                if event.key == pygame.K_ESCAPE:
+
+                    if game_state == PLAYING:
+                        go_to_menu()
+
+                    elif game_state == GAME_OVER:
+                        go_to_menu()
+
+                elif event.key == pygame.K_SPACE:
 
                     if game_state == MENU:
                         start_game()
 
                     elif game_state == PLAYING:
+
                         bird_movement = -5.5
+
+                        create_particles(
+                            bird_x - 10,
+                            bird_y + 10,
+                            (
+                                255,
+                                220,
+                                70
+                            ),
+                            4
+                        )
 
                     elif game_state == GAME_OVER:
                         go_to_menu()
@@ -558,14 +1228,34 @@ async def game_loop():
                     start_game()
 
                 elif game_state == PLAYING:
+
                     bird_movement = -5.5
+
+                    create_particles(
+                        bird_x - 10,
+                        bird_y + 10,
+                        (
+                            255,
+                            220,
+                            70
+                        ),
+                        4
+                    )
 
                 elif game_state == GAME_OVER:
                     go_to_menu()
 
-        # -------------------------
-        # GAME UPDATE
-        # -------------------------
+        background_time += 1
+
+        fps_timer += 1
+
+        if fps_timer >= 30:
+
+            fps_display = round(
+                clock.get_fps()
+            )
+
+            fps_timer = 0
 
         if game_state == PLAYING:
 
@@ -574,64 +1264,93 @@ async def game_loop():
 
             spawn_timer += 1
 
-            if spawn_timer >= 90:
+            spawn_delay = max(
+                72,
+                90 - score * 2
+            )
+
+            if spawn_timer >= spawn_delay:
+
                 create_pipe()
+
                 spawn_timer = 0
 
-            # Bird animation
             bird_animation_timer += 1
 
-            if bird_animation_timer >= 8:
+            if bird_animation_timer >= 7:
+
                 bird_animation_timer = 0
+
                 bird_frame += 1
 
                 if bird_frame >= 3:
                     bird_frame = 0
 
-            # Move pipes
             for pipe in pipes:
 
-                pipe["x"] -= pipe_speed
+                pipe["x"] -= (
+                    pipe_speed
+                    + min(
+                        score * 0.04,
+                        1.3
+                    )
+                )
 
-                # Score when bird passes pipe
+                update_pipe_vertical_movement(
+                    pipe
+                )
+
                 if (
                     not pipe["passed"]
-                    and pipe["x"] + pipe_width < bird_x
+                    and
+                    pipe["x"] + pipe_width < bird_x
                 ):
+
                     pipe["passed"] = True
+
                     score += 1
 
-            # Remove old pipes
+                    create_particles(
+                        bird_x,
+                        bird_y,
+                        YELLOW,
+                        10
+                    )
+
             pipes[:] = [
                 pipe
                 for pipe in pipes
                 if pipe["x"] > -pipe_width - 20
             ]
 
-            # Ceiling collision
-            if bird_y - bird_radius < 0:
-                game_state = GAME_OVER
+            if (
+                bird_y - bird_radius < 0
+            ):
 
-            # Ground collision
-            if bird_y + bird_radius >= HEIGHT - ground_height:
-                game_state = GAME_OVER
+                game_over()
 
-            # Pipe collision
-            for pipe in pipes:
+            if (
+                bird_y + bird_radius
+                >= HEIGHT - ground_height
+            ):
 
-                if check_collision(pipe):
-                    game_state = GAME_OVER
-                    break
+                game_over()
 
-            # Update high score
-            if game_state == GAME_OVER:
+            if game_state == PLAYING:
 
-                if score > high_score:
-                    high_score = score
+                for pipe in pipes:
 
-        # -------------------------
-        # DRAW
-        # -------------------------
+                    if check_collision(pipe):
+
+                        game_over()
+
+                        break
+
+        update_particles()
+
+        screen.fill(
+            SKY_TOP
+        )
 
         draw_background()
 
@@ -641,6 +1360,7 @@ async def game_loop():
                 draw_pipe(pipe)
 
             draw_ground()
+            draw_particles()
             draw_bird()
             draw_score()
 
@@ -655,8 +1375,11 @@ async def game_loop():
                 draw_pipe(pipe)
 
             draw_ground()
+            draw_particles()
             draw_bird()
             draw_game_over()
+
+        draw_fps()
 
         pygame.display.flip()
 
@@ -667,4 +1390,6 @@ async def game_loop():
     pygame.quit()
 
 
-asyncio.ensure_future(game_loop())
+asyncio.ensure_future(
+    game_loop()
+)
