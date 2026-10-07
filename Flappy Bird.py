@@ -37,10 +37,6 @@ GROUND_DARK = (188, 150, 70)
 RED = (245, 75, 80)
 BLUE = (70, 150, 255)
 
-FPS_REFERENCE = 60.0
-REFERENCE_DT = 1.0 / FPS_REFERENCE
-MAX_DT = 0.05
-
 gravity = 0.20
 bird_movement = 0
 
@@ -132,12 +128,12 @@ def create_particles(x, y, color, amount=8):
         })
 
 
-def update_particles(frame_scale):
+def update_particles():
     for particle in particles[:]:
-        particle["x"] += particle["vx"] * frame_scale
-        particle["y"] += particle["vy"] * frame_scale
-        particle["vy"] += 0.03 * frame_scale
-        particle["life"] -= frame_scale
+        particle["x"] += particle["vx"]
+        particle["y"] += particle["vy"]
+        particle["vy"] += 0.03
+        particle["life"] -= 1
 
         if particle["life"] <= 0:
             particles.remove(particle)
@@ -146,7 +142,7 @@ def update_particles(frame_scale):
 def draw_particles():
     for particle in particles:
         alpha = clamp(
-            int(particle["life"] * 6),
+            particle["life"] * 6,
             0,
             255
         )
@@ -222,12 +218,7 @@ def draw_background():
 
         pygame.draw.circle(
             sun_surface,
-            (
-                255,
-                245,
-                160,
-                alpha
-            ),
+            (255, 245, 160, alpha),
             (75, 75),
             radius
         )
@@ -733,7 +724,6 @@ def start_game():
     global bird_frame
     global game_state
     global particles
-    global background_time
 
     bird_y = HEIGHT // 2
     bird_movement = 0
@@ -745,7 +735,6 @@ def start_game():
     spawn_timer = 0
     bird_animation_timer = 0
     bird_frame = 0
-    background_time = 0
 
     game_state = PLAYING
 
@@ -1023,7 +1012,7 @@ def draw_menu():
     )
 
     draw_text_center(
-        "Uncapped rendering",
+        "Slow moving pipes",
         small_font,
         (
             190,
@@ -1193,13 +1182,7 @@ async def game_loop():
 
     running = True
 
-    clock.get_time()
-
     while running:
-
-        dt = clock.get_time() / 1000.0
-        dt = min(dt, MAX_DT)
-        frame_scale = dt / REFERENCE_DT
 
         for event in pygame.event.get():
 
@@ -1262,11 +1245,11 @@ async def game_loop():
                 elif game_state == GAME_OVER:
                     go_to_menu()
 
-        background_time += frame_scale
+        background_time += 1
 
-        fps_timer += dt
+        fps_timer += 1
 
-        if fps_timer >= 0.5:
+        if fps_timer >= 30:
 
             fps_display = round(
                 clock.get_fps()
@@ -1276,15 +1259,10 @@ async def game_loop():
 
         if game_state == PLAYING:
 
-            bird_movement += (
-                gravity * frame_scale
-            )
+            bird_movement += gravity
+            bird_y += bird_movement
 
-            bird_y += (
-                bird_movement * frame_scale
-            )
-
-            spawn_timer += frame_scale
+            spawn_timer += 1
 
             spawn_delay = max(
                 72,
@@ -1295,13 +1273,13 @@ async def game_loop():
 
                 create_pipe()
 
-                spawn_timer -= spawn_delay
+                spawn_timer = 0
 
-            bird_animation_timer += frame_scale
+            bird_animation_timer += 1
 
-            while bird_animation_timer >= 7:
+            if bird_animation_timer >= 7:
 
-                bird_animation_timer -= 7
+                bird_animation_timer = 0
 
                 bird_frame += 1
 
@@ -1310,17 +1288,12 @@ async def game_loop():
 
             for pipe in pipes:
 
-                pipe_speed_current = (
+                pipe["x"] -= (
                     pipe_speed
                     + min(
                         score * 0.04,
                         1.3
                     )
-                )
-
-                pipe["x"] -= (
-                    pipe_speed_current
-                    * frame_scale
                 )
 
                 update_pipe_vertical_movement(
@@ -1373,9 +1346,7 @@ async def game_loop():
 
                         break
 
-        update_particles(
-            frame_scale
-        )
+        update_particles()
 
         screen.fill(
             SKY_TOP
@@ -1411,6 +1382,8 @@ async def game_loop():
         draw_fps()
 
         pygame.display.flip()
+
+        clock.tick(60)
 
         await asyncio.sleep(0)
 
